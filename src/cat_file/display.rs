@@ -187,6 +187,13 @@ pub fn types(hash: &str) -> Result<(), String> {
     Ok(())
 }
 
+pub fn size(hash: &str) -> Result<(), String> {
+    let mut content = Content::new(hash);
+    let size = content.size()?;
+    println!("{}", size);
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

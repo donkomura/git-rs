@@ -22,6 +22,8 @@ enum Subcommands {
         is_types: bool,
         #[arg(short = 'p', long = "hash", help = "show object content")]
         is_hash: bool,
+        #[arg(short = 's', long = "size", help = "show the object size identified")]
+        is_size: bool,
         #[arg(help = "hash value of the object")]
         hash: String,
     },
@@ -34,12 +36,17 @@ fn main() {
         Subcommands::CatFile {
             is_types,
             is_hash,
+            is_size,
             hash,
         } => {
             if is_hash {
                 let _ = cat_file::display::contents(&hash).unwrap();
             } else if is_types {
                 let _ = cat_file::display::types(&hash).unwrap();
+            } else if is_size {
+                let _ = cat_file::display::size(&hash).unwrap();
+            } else {
+                println!("At least 1 option should be specified. Abort.");
             }
         }
     }
