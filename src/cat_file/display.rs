@@ -78,7 +78,6 @@ impl Content {
                 .take(20)
                 .map(|x| format!("{:02x}", x))
                 .collect::<String>();
-            // entry = entry.drain(..filehash_pos).collect();
             println!("{:06} {} {}\t{}", filemode, obj_type, filehash, filename);
         }
 
@@ -194,5 +193,41 @@ mod tests {
         let mut contents = Content::new("37dc934f93b32f0f5901cfa451c08d06756d8f8d"); // Cargo.toml
         let types = contents.object_type().unwrap();
         assert_eq!(types, "blob");
+    }
+    #[test]
+    fn test_contents_blob() -> Result<(), String> {
+        let hash_str = "37dc934f93b32f0f5901cfa451c08d06756d8f8d"; // Cargo.toml
+        let mut contents = Content::new(hash_str);
+        let got = contents.data()?;
+
+        let want_binary = std::process::Command::new("git")
+            .args(["cat-file", "-p", hash_str])
+            .stdout(std::process::Stdio::piped())
+            .output()
+            .unwrap()
+            .stdout;
+        let want = String::from_utf8(want_binary).unwrap();
+
+        assert!(got[0].contains("blob"));
+        assert_eq!(got[1], want);
+        Ok(())
+    }
+    #[test]
+    fn test_contents_commit() -> Result<(), String> {
+        let hash_str = "8d0e1910e145c51c5c5d6df1b3a19261913ad7cc"; // develop commit
+        let mut contents = Content::new(hash_str);
+        let got = contents.data()?;
+
+        let want_binary = std::process::Command::new("git")
+            .args(["cat-file", "-p", hash_str])
+            .stdout(std::process::Stdio::piped())
+            .output()
+            .unwrap()
+            .stdout;
+        let want = String::from_utf8(want_binary).unwrap();
+
+        assert!(got[0].contains("commit"));
+        assert_eq!(got[1], want);
+        Ok(())
     }
 }
