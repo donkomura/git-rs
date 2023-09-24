@@ -6,6 +6,7 @@ struct Content {
     hash: String,
     decoded: Vec<u8>,
     file_type: String,
+    size: u32,
 }
 
 impl Content {
@@ -14,6 +15,7 @@ impl Content {
             hash: hash.into(),
             decoded: Vec::new(),
             file_type: String::new(),
+            size: 0,
         }
     }
     fn path(&self) -> Result<String, String> {
@@ -45,15 +47,49 @@ impl Content {
     fn to_string(&self) -> String {
         String::from_utf8(self.decoded.to_vec()).unwrap()
     }
+    pub fn list(&mut self) -> Result<(), String> {
+        if self.decoded.is_empty() {
+            let _ = self.decode().expect("Failed to decode tree object");
+        }
+        let contents: Vec<&[u8]> = self.decoded.splitn(2, |ch| *ch == b'\x00').collect();
+        let (obj_type, size) = std::str::from_utf8(contents[0])
+            .unwrap()
+            .split_once(" ")
+            .unwrap();
+        if obj_type != "tree" {
+            return Err(format!("Invalid object type: {}", self.file_type));
+        }
+        self.size = size.parse::<u32>().unwrap();
+        let mut entry = contents[1].to_vec();
+        while !entry.is_empty() {
+            let filemode_pos = entry.iter().position(|&ch| ch == b' ').unwrap();
+            let filemode = String::from_utf8(entry.drain(..filemode_pos).collect::<Vec<u8>>())
+                .unwrap()
+                .parse::<u64>()
+                .unwrap();
+            let filename_pos = entry.iter().position(|&ch| ch == b'\x00').unwrap() + 1; // NULL文字を含めて良い
+            let filename =
+                String::from_utf8(entry.drain(..filename_pos).collect::<Vec<u8>>()).unwrap();
+            let filehash_pos = 20;
+            let filehash = entry
+                .drain(..filehash_pos)
+                .collect::<Vec<u8>>()
+                .iter()
+                .take(20)
+                .map(|x| format!("{:02x}", x))
+                .collect::<String>();
+            // entry = entry.drain(..filehash_pos).collect();
+            println!("{:06} {} {}\t{}", filemode, obj_type, filehash, filename);
+        }
+
+        Ok(())
+    }
     pub fn data(&mut self) -> Result<Vec<String>, String> {
         if self.decoded.is_empty() {
             let _ = self.decode()?;
         }
         let decoded_str = self.to_string();
         let data: Vec<&str> = decoded_str.split("\0").collect();
-        let file_type_split: Vec<&str> = data[0].split(" ").collect();
-        let file_type = file_type_split[0];
-        self.file_type = file_type.to_string();
         Ok(data.into_iter().map(String::from).collect())
     }
     pub fn object_type(&mut self) -> Result<String, String> {
@@ -81,8 +117,7 @@ pub fn contents(hash: &str) -> Result<(), String> {
         }
         "tree" => {
             println!("tree object");
-            let data = content.data()?;
-            println!("{}", data[1]);
+            let _ = content.list()?;
         }
         "blob" => {
             println!("blob object");
