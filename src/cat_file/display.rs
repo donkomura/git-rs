@@ -16,7 +16,7 @@ impl Content {
             file_type: String::new(),
         }
     }
-    fn check_path(&self) -> Result<String, String> {
+    fn path(&self) -> Result<String, String> {
         let (sub_dir, filename) = self.hash.split_at(2);
         let path_str = format!(".git/objects/{}/{}", sub_dir, filename);
         let path = Path::new(&path_str);
@@ -30,7 +30,7 @@ impl Content {
             return Ok(self.decoded.clone());
         }
 
-        let path_str = self.check_path()?;
+        let path_str = self.path()?;
         let path = Path::new(&path_str);
         let mut buffer = Vec::new();
         match File::open(path) {
@@ -45,7 +45,7 @@ impl Content {
     fn to_string(&self) -> String {
         String::from_utf8(self.decoded.to_vec()).unwrap()
     }
-    pub fn get_data(&mut self) -> Result<Vec<String>, String> {
+    pub fn data(&mut self) -> Result<Vec<String>, String> {
         if self.decoded.is_empty() {
             let _ = self.decode()?;
         }
@@ -56,7 +56,7 @@ impl Content {
         self.file_type = file_type.to_string();
         Ok(data.into_iter().map(String::from).collect())
     }
-    pub fn get_type(&mut self) -> Result<String, String> {
+    pub fn object_type(&mut self) -> Result<String, String> {
         if self.file_type.len() > 0 {
             return Ok(self.file_type.clone());
         }
@@ -72,19 +72,21 @@ impl Content {
 pub fn contents(hash: &str) -> Result<(), String> {
     let mut content = Content::new(hash);
 
-    let types = content.get_type()?;
-    let data = content.get_data()?;
+    let types = content.object_type()?;
     match types.as_str() {
         "commit" => {
             println!("commit object");
+            let data = content.data()?;
             println!("{}", data[1]);
         }
         "tree" => {
             println!("tree object");
+            let data = content.data()?;
             println!("{}", data[1]);
         }
         "blob" => {
             println!("blob object");
+            let data = content.data()?;
             println!("{}", data[1]);
         }
         _ => {
@@ -96,7 +98,7 @@ pub fn contents(hash: &str) -> Result<(), String> {
 
 pub fn types(hash: &str) -> Result<(), String> {
     let mut content = Content::new(hash);
-    let types = content.get_type()?;
+    let types = content.object_type()?;
     println!("{} object", types);
     Ok(())
 }
@@ -113,7 +115,7 @@ mod tests {
     #[test]
     fn test_check_path_if_exists() -> Result<(), String> {
         let contents = Content::new("a605e75b0350483029ac7d96c1038ac128732f63");
-        let path = contents.check_path()?;
+        let path = contents.path()?;
         assert_eq!(
             path,
             ".git/objects/a6/05e75b0350483029ac7d96c1038ac128732f63"
@@ -124,7 +126,7 @@ mod tests {
     #[should_panic]
     fn test_check_path_does_not_exists() {
         let contents = Content::new("hogefuga");
-        let _ = contents.check_path().unwrap();
+        let _ = contents.path().unwrap();
     }
     #[test]
     fn test_decode_blob() -> Result<(), String> {
@@ -143,19 +145,19 @@ mod tests {
     #[test]
     fn test_types_commit() {
         let mut contents = Content::new("8d0e1910e145c51c5c5d6df1b3a19261913ad7cc"); // develop commit
-        let types = contents.get_type().unwrap();
+        let types = contents.object_type().unwrap();
         assert_eq!(types, "commit");
     }
     #[test]
     fn test_types_tree() {
         let mut contents = Content::new("cd6b39ce605837005418cab9a4b1faeeefa464ca"); // src
-        let types = contents.get_type().unwrap();
+        let types = contents.object_type().unwrap();
         assert_eq!(types, "tree");
     }
     #[test]
     fn test_types_blob() {
         let mut contents = Content::new("37dc934f93b32f0f5901cfa451c08d06756d8f8d"); // Cargo.toml
-        let types = contents.get_type().unwrap();
+        let types = contents.object_type().unwrap();
         assert_eq!(types, "blob");
     }
 }
