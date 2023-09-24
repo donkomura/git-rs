@@ -60,7 +60,11 @@ impl Content {
         if self.file_type.len() > 0 {
             return Ok(self.file_type.clone());
         }
-        let _ = self.get_data()?;
+        if self.decoded.is_empty() {
+            let _ = self.decode()?;
+        }
+        let types_buff: Vec<&[u8]> = self.decoded.split(|ch| *ch == b' ').collect();
+        self.file_type = String::from_utf8(types_buff[0].to_vec()).unwrap();
         Ok(self.file_type.clone())
     }
 }
@@ -76,11 +80,11 @@ pub fn contents(hash: &str) -> Result<(), String> {
             println!("{}", data[1]);
         }
         "tree" => {
-            println!("commit object");
+            println!("tree object");
             println!("{}", data[1]);
         }
         "blob" => {
-            println!("commit object");
+            println!("blob object");
             println!("{}", data[1]);
         }
         _ => {
@@ -135,5 +139,23 @@ mod tests {
         let decoded = contents.decode()?;
         assert!(!decoded.is_empty());
         Ok(())
+    }
+    #[test]
+    fn test_types_commit() {
+        let mut contents = Content::new("8d0e1910e145c51c5c5d6df1b3a19261913ad7cc"); // develop commit
+        let types = contents.get_type().unwrap();
+        assert_eq!(types, "commit");
+    }
+    #[test]
+    fn test_types_tree() {
+        let mut contents = Content::new("cd6b39ce605837005418cab9a4b1faeeefa464ca"); // src
+        let types = contents.get_type().unwrap();
+        assert_eq!(types, "tree");
+    }
+    #[test]
+    fn test_types_blob() {
+        let mut contents = Content::new("37dc934f93b32f0f5901cfa451c08d06756d8f8d"); // Cargo.toml
+        let types = contents.get_type().unwrap();
+        assert_eq!(types, "blob");
     }
 }
