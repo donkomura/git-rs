@@ -1,10 +1,9 @@
-use std::io::Read;
+use std::io::{Read, Result};
 
 use flate2::read::ZlibDecoder;
 
-pub fn decompress(data: &[u8]) -> String {
-    let mut decoder = ZlibDecoder::new(data);
-    let mut s = String::new();
-    decoder.read_to_string(&mut s).unwrap();
-    s
+pub fn decompress<'a>(bytes: &'a [u8], buffer: &'a mut Vec<u8>) -> Result<()> {
+    let mut decoder = ZlibDecoder::new(&bytes[..]);
+    decoder.read_to_end(buffer)?;
+    Ok(())
 }
