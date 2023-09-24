@@ -70,9 +70,10 @@ impl Content {
         let mut entry = contents[1].to_vec();
         let mut result: Vec<TreeEntry> = vec![];
         while !entry.is_empty() {
-            let filemode_pos = entry.iter().position(|&ch| ch == b' ').unwrap();
+            let filemode_pos = entry.iter().position(|&ch| ch == b' ').unwrap() + 1;
             let filemode = String::from_utf8(entry.drain(..filemode_pos).collect::<Vec<u8>>())
                 .unwrap()
+                .trim()
                 .parse::<u64>()
                 .unwrap();
             let mut entry_type = "None";
@@ -81,9 +82,11 @@ impl Content {
             } else if filemode == 100644 {
                 entry_type = "blob"
             }
-            let filename_pos = entry.iter().position(|&ch| ch == b'\x00').unwrap() + 1; // NULL文字を含めて良い
-            let filename =
-                String::from_utf8(entry.drain(..filename_pos).collect::<Vec<u8>>()).unwrap();
+            let filename_pos = entry.iter().position(|&ch| ch == b'\x00').unwrap() + 1;
+            let filename = String::from_utf8(entry.drain(..filename_pos).collect::<Vec<u8>>())
+                .unwrap()
+                .trim_matches(char::from(0))
+                .to_string();
             let filehash_pos = 20;
             let filehash = entry
                 .drain(..filehash_pos)
@@ -253,6 +256,31 @@ mod tests {
 
         assert!(got[0].contains("commit"));
         assert_eq!(got[1], want);
+        Ok(())
+    }
+    #[test]
+    fn test_contents_tree() -> Result<(), String> {
+        let hash_str = "cd6b39ce605837005418cab9a4b1faeeefa464ca"; // src
+        let mut contents = Content::new(hash_str);
+        let got = contents.list()?;
+
+        let want_binary = std::process::Command::new("git")
+            .args(["cat-file", "-p", hash_str])
+            .stdout(std::process::Stdio::piped())
+            .output()
+            .unwrap()
+            .stdout;
+        let want = String::from_utf8(want_binary).unwrap();
+
+        let mut got_str = String::new();
+        for g in got {
+            got_str.push_str(&format!(
+                "{:06} {} {}\t{}\n",
+                g.mode, g.obj_type, g.hash, g.name
+            ));
+        }
+        assert_eq!(got_str, want);
+
         Ok(())
     }
 }
