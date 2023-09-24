@@ -9,6 +9,13 @@ struct Content {
     size: u32,
 }
 
+struct TreeEntry {
+    mode: u64,
+    name: String,
+    obj_type: String,
+    hash: String,
+}
+
 impl Content {
     pub fn new(hash: impl Into<String>) -> Self {
         Self {
@@ -47,7 +54,7 @@ impl Content {
     fn to_string(&self) -> String {
         String::from_utf8(self.decoded.to_vec()).unwrap()
     }
-    pub fn list(&mut self) -> Result<(), String> {
+    pub fn list(&mut self) -> Result<Vec<TreeEntry>, String> {
         if self.decoded.is_empty() {
             let _ = self.decode().expect("Failed to decode tree object");
         }
@@ -61,12 +68,19 @@ impl Content {
         }
         self.size = size.parse::<u32>().unwrap();
         let mut entry = contents[1].to_vec();
+        let mut result: Vec<TreeEntry> = vec![];
         while !entry.is_empty() {
             let filemode_pos = entry.iter().position(|&ch| ch == b' ').unwrap();
             let filemode = String::from_utf8(entry.drain(..filemode_pos).collect::<Vec<u8>>())
                 .unwrap()
                 .parse::<u64>()
                 .unwrap();
+            let mut entry_type = "None";
+            if filemode == 40000 {
+                entry_type = "tree";
+            } else if filemode == 100644 {
+                entry_type = "blob"
+            }
             let filename_pos = entry.iter().position(|&ch| ch == b'\x00').unwrap() + 1; // NULL文字を含めて良い
             let filename =
                 String::from_utf8(entry.drain(..filename_pos).collect::<Vec<u8>>()).unwrap();
@@ -78,10 +92,15 @@ impl Content {
                 .take(20)
                 .map(|x| format!("{:02x}", x))
                 .collect::<String>();
-            println!("{:06} {} {}\t{}", filemode, obj_type, filehash, filename);
+            result.push(TreeEntry {
+                mode: filemode,
+                name: filename,
+                obj_type: entry_type.to_owned(),
+                hash: filehash,
+            });
         }
 
-        Ok(())
+        Ok(result)
     }
     pub fn data(&mut self) -> Result<Vec<String>, String> {
         if self.decoded.is_empty() {
@@ -116,7 +135,13 @@ pub fn contents(hash: &str) -> Result<(), String> {
         }
         "tree" => {
             println!("tree object");
-            let _ = content.list()?;
+            let entries = content.list()?;
+            for entry in entries {
+                println!(
+                    "{:06} {} {}\t{}",
+                    entry.mode, entry.obj_type, entry.hash, entry.name
+                );
+            }
         }
         "blob" => {
             println!("blob object");
