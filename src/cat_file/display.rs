@@ -6,7 +6,7 @@ struct Content {
     hash: String,
     decoded: Vec<u8>,
     file_type: String,
-    size: u32,
+    size: usize,
 }
 
 struct TreeEntry {
@@ -59,14 +59,13 @@ impl Content {
             let _ = self.decode().expect("Failed to decode tree object");
         }
         let contents: Vec<&[u8]> = self.decoded.splitn(2, |ch| *ch == b'\x00').collect();
-        let (obj_type, size) = std::str::from_utf8(contents[0])
+        let (obj_type, _) = std::str::from_utf8(contents[0])
             .unwrap()
             .split_once(" ")
             .unwrap();
         if obj_type != "tree" {
             return Err(format!("Invalid object type: {}", self.file_type));
         }
-        self.size = size.parse::<u32>().unwrap();
         let mut entry = contents[1].to_vec();
         let mut result: Vec<TreeEntry> = vec![];
         while !entry.is_empty() {
@@ -123,6 +122,21 @@ impl Content {
         let types_buff: Vec<&[u8]> = self.decoded.split(|ch| *ch == b' ').collect();
         self.file_type = String::from_utf8(types_buff[0].to_vec()).unwrap();
         Ok(self.file_type.clone())
+    }
+    pub fn size(&mut self) -> Result<usize, String> {
+        if self.size != 0 {
+            return Ok(self.size);
+        }
+        if self.decoded.is_empty() {
+            let _ = self.decode()?;
+        }
+        let buff: Vec<&[u8]> = self.decoded.splitn(2, |ch| *ch == b'\x00').collect();
+        let (_, size) = std::str::from_utf8(buff[0])
+            .unwrap()
+            .split_once(" ")
+            .unwrap();
+        let s = size.parse::<usize>().unwrap();
+        Ok(s)
     }
 }
 
@@ -221,6 +235,22 @@ mod tests {
         let mut contents = Content::new("37dc934f93b32f0f5901cfa451c08d06756d8f8d"); // Cargo.toml
         let types = contents.object_type().unwrap();
         assert_eq!(types, "blob");
+    }
+    #[test]
+    fn test_size() {
+        let hash_str = "37dc934f93b32f0f5901cfa451c08d06756d8f8d";
+        let mut contents = Content::new(hash_str); // Cargo.toml
+        let got = contents.size().unwrap();
+        let want_binary = std::process::Command::new("git")
+            .args(["cat-file", "-s", hash_str])
+            .stdout(std::process::Stdio::piped())
+            .output()
+            .unwrap()
+            .stdout;
+        let want_str = String::from_utf8(want_binary).unwrap();
+        let want = want_str.trim_end().parse::<usize>().unwrap();
+
+        assert_eq!(got, want);
     }
     #[test]
     fn test_contents_blob() -> Result<(), String> {
