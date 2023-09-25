@@ -6,7 +6,7 @@ struct Content {
     hash: String,
     decoded: Vec<u8>,
     file_type: String,
-    size: u32,
+    size: usize,
 }
 
 struct TreeEntry {
@@ -51,22 +51,18 @@ impl Content {
         compression::zlib::decompress(&buffer, &mut self.decoded).unwrap();
         Ok(self.decoded.clone())
     }
-    fn to_string(&self) -> String {
-        String::from_utf8(self.decoded.to_vec()).unwrap()
+    fn to_string(&self) -> Result<String, String> {
+        Ok(String::from_utf8(self.decoded.to_vec()).expect("convert binary to string"))
     }
     pub fn list(&mut self) -> Result<Vec<TreeEntry>, String> {
         if self.decoded.is_empty() {
             let _ = self.decode().expect("Failed to decode tree object");
         }
         let contents: Vec<&[u8]> = self.decoded.splitn(2, |ch| *ch == b'\x00').collect();
-        let (obj_type, size) = std::str::from_utf8(contents[0])
-            .unwrap()
-            .split_once(" ")
-            .unwrap();
+        let obj_type = self.get_object_type()?;
         if obj_type != "tree" {
             return Err(format!("Invalid object type: {}", self.file_type));
         }
-        self.size = size.parse::<u32>().unwrap();
         let mut entry = contents[1].to_vec();
         let mut result: Vec<TreeEntry> = vec![];
         while !entry.is_empty() {
@@ -105,24 +101,50 @@ impl Content {
 
         Ok(result)
     }
+    fn get_data(&self) -> Result<Vec<String>, String> {
+        let decoded_str = self.to_string()?;
+        let data: Vec<&str> = decoded_str.split("\0").collect();
+        Ok(data.into_iter().map(String::from).collect())
+    }
     pub fn data(&mut self) -> Result<Vec<String>, String> {
         if self.decoded.is_empty() {
             let _ = self.decode()?;
         }
-        let decoded_str = self.to_string();
-        let data: Vec<&str> = decoded_str.split("\0").collect();
-        Ok(data.into_iter().map(String::from).collect())
+        let data = self.get_data()?;
+        Ok(data)
     }
-    pub fn object_type(&mut self) -> Result<String, String> {
+    fn get_object_type(&self) -> Result<String, String> {
         if self.file_type.len() > 0 {
             return Ok(self.file_type.clone());
         }
+        let types_buff: Vec<&[u8]> = self.decoded.split(|ch| *ch == b' ').collect();
+        Ok(String::from_utf8(types_buff[0].to_vec())
+            .expect("Convert to string in getting the object type"))
+    }
+    pub fn object_type(&mut self) -> Result<String, String> {
         if self.decoded.is_empty() {
             let _ = self.decode()?;
         }
-        let types_buff: Vec<&[u8]> = self.decoded.split(|ch| *ch == b' ').collect();
-        self.file_type = String::from_utf8(types_buff[0].to_vec()).unwrap();
+        self.file_type = self.get_object_type()?;
         Ok(self.file_type.clone())
+    }
+    fn get_size(&self) -> Result<usize, String> {
+        if self.size != 0 {
+            return Ok(self.size);
+        }
+        let buff: Vec<&[u8]> = self.decoded.splitn(2, |ch| *ch == b'\x00').collect();
+        let (_, size) = std::str::from_utf8(buff[0])
+            .unwrap()
+            .split_once(" ")
+            .unwrap();
+        let s = size.parse::<usize>().expect("Parse str to usize");
+        Ok(s)
+    }
+    pub fn size(&mut self) -> Result<usize, String> {
+        if self.decoded.is_empty() {
+            let _ = self.decode()?;
+        }
+        Ok(self.get_size()?)
     }
 }
 
@@ -162,6 +184,13 @@ pub fn types(hash: &str) -> Result<(), String> {
     let mut content = Content::new(hash);
     let types = content.object_type()?;
     println!("{} object", types);
+    Ok(())
+}
+
+pub fn size(hash: &str) -> Result<(), String> {
+    let mut content = Content::new(hash);
+    let size = content.size()?;
+    println!("{}", size);
     Ok(())
 }
 
@@ -221,6 +250,22 @@ mod tests {
         let mut contents = Content::new("37dc934f93b32f0f5901cfa451c08d06756d8f8d"); // Cargo.toml
         let types = contents.object_type().unwrap();
         assert_eq!(types, "blob");
+    }
+    #[test]
+    fn test_size() {
+        let hash_str = "37dc934f93b32f0f5901cfa451c08d06756d8f8d";
+        let mut contents = Content::new(hash_str); // Cargo.toml
+        let got = contents.size().unwrap();
+        let want_binary = std::process::Command::new("git")
+            .args(["cat-file", "-s", hash_str])
+            .stdout(std::process::Stdio::piped())
+            .output()
+            .unwrap()
+            .stdout;
+        let want_str = String::from_utf8(want_binary).unwrap();
+        let want = want_str.trim_end().parse::<usize>().unwrap();
+
+        assert_eq!(got, want);
     }
     #[test]
     fn test_contents_blob() -> Result<(), String> {
