@@ -1,5 +1,6 @@
 use clap::{Parser, Subcommand};
 use git_rs::cat_file;
+use git_rs::hash_object;
 
 #[derive(Debug, Parser)]
 #[clap(
@@ -27,6 +28,18 @@ enum Subcommands {
         #[arg(help = "hash value of the object")]
         hash: String,
     },
+    HashObject {
+        #[arg(
+            short = 'w',
+            long = "write",
+            help = "write the object into the object database"
+        )]
+        is_write: bool,
+        #[arg(short = 't', long = "type", help = "specify the type")]
+        object_type: String,
+        #[arg(help = "file to hash")]
+        file: String,
+    },
 }
 
 fn main() {
@@ -47,6 +60,18 @@ fn main() {
                 let _ = cat_file::display::size(&hash).unwrap();
             } else {
                 println!("At least 1 option should be specified. Abort.");
+            }
+        }
+        Subcommands::HashObject {
+            is_write,
+            object_type,
+            file,
+        } => {
+            if is_write {
+                let _ = hash_object::content::write(&object_type, &file).unwrap();
+            } else {
+                let hash_str = hash_object::content::hash(&object_type, &file).unwrap();
+                println!("{}", hash_str);
             }
         }
     }
