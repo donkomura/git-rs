@@ -1,4 +1,4 @@
-use super::super::compression;
+use crate::compression;
 use std::str;
 use std::{fs::File, io::Read, path::Path};
 
