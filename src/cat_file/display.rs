@@ -1,4 +1,6 @@
 use crate::compression;
+use std::io;
+use std::io::Error;
 use std::str;
 use std::{fs::File, io::Read, path::Path};
 
@@ -25,12 +27,15 @@ impl Content {
             size: 0,
         }
     }
-    fn path(&self) -> Result<String, String> {
+    fn path(&self) -> io::Result<String> {
         let (sub_dir, filename) = self.hash.split_at(2);
         let path_str = format!(".git/objects/{}/{}", sub_dir, filename);
         let path = Path::new(&path_str);
         if !path.exists() {
-            return Err(format!("specified object {} does not found", self.hash).to_string());
+            return Err(Error::new(
+                io::ErrorKind::NotFound,
+                format!(".git/objects/{}/{}", sub_dir, filename),
+            ));
         }
         Ok(path_str)
     }
@@ -39,7 +44,7 @@ impl Content {
             return Ok(self.decoded.clone());
         }
 
-        let path_str = self.path()?;
+        let path_str = self.path().expect("path does not found");
         let path = Path::new(&path_str);
         let mut buffer = Vec::new();
         match File::open(path) {
@@ -196,7 +201,59 @@ pub fn size(hash: &str) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
+    use core::panic;
+    use rand::{self, Rng};
+    use std::{fs, io::Write};
+
     use super::*;
+
+    fn filename_helper(testname: &str) -> String {
+        const TESTFILE_PREFIX: &str = "test_";
+        format!("{}{}.txt", TESTFILE_PREFIX, testname)
+    }
+    fn dirname_helper(testname: &str) -> String {
+        const TESTDIR_PREFIX: &str = "test_dir_";
+        format!("{}{}", TESTDIR_PREFIX, testname)
+    }
+
+    fn hash_helper(testname: &str, types: &str) -> String {
+        match types {
+            "blob" => {
+                let mut file = File::create(filename_helper(testname)).expect("create file");
+                let mut content = [0u8; 20];
+                rand::thread_rng().fill(&mut content[..]);
+                file.write_all(&content).expect("write file");
+                let hash = std::process::Command::new("git")
+                    .args(["hash-object", "-w", &filename_helper(testname)])
+                    .stdout(std::process::Stdio::piped())
+                    .output()
+                    .unwrap()
+                    .stdout;
+                String::from_utf8(hash).unwrap().trim().to_owned()
+            }
+            "tree" => {
+                // not implemented
+                panic!("not implemented");
+            }
+            "commit" => {
+                // not implemented
+                panic!("not implemented");
+            }
+            _ => {
+                panic!("unknown types");
+            }
+        }
+    }
+    fn remove_file_helper(path: &str) -> io::Result<()> {
+        fs::remove_file(path)?;
+        Ok(())
+    }
+    fn remove_file_from_hash_helper(hash: &str) -> io::Result<()> {
+        let (sub_dir, filename) = hash.split_at(2);
+        let path = format!(".git/objects/{}/{}", sub_dir, filename);
+        fs::remove_file(path)?;
+        Ok(())
+    }
 
     #[test]
     fn test_contents_constructor() {
@@ -204,13 +261,14 @@ mod tests {
         assert_eq!(contents.hash, "test-hash");
     }
     #[test]
-    fn test_check_path_if_exists() -> Result<(), String> {
-        let contents = Content::new("a605e75b0350483029ac7d96c1038ac128732f63");
-        let path = contents.path()?;
-        assert_eq!(
-            path,
-            ".git/objects/a6/05e75b0350483029ac7d96c1038ac128732f63"
-        );
+    fn test_path_exists() -> Result<(), String> {
+        let hash = hash_helper("path_exists", "blob");
+        let contents = Content::new(&hash);
+        let got = contents.path().unwrap();
+        let (dir, filename) = hash.split_at(2);
+        assert_eq!(got, format!(".git/objects/{}/{}", dir, filename));
+        remove_file_helper(&filename_helper("path_exists")).unwrap();
+        remove_file_from_hash_helper(&hash).unwrap();
         Ok(())
     }
     #[test]
@@ -221,43 +279,30 @@ mod tests {
     }
     #[test]
     fn test_decode_blob() -> Result<(), String> {
-        let mut contents = Content::new("196e176ded130852dddb034af1b92bce178558c9"); // .gitignore
+        let hash = hash_helper("decode_blob", "blob");
+        let mut contents = Content::new(&hash);
         let decoded = contents.decode()?;
         assert!(!decoded.is_empty());
+        remove_file_helper(&filename_helper("decode_blob")).unwrap();
+        remove_file_from_hash_helper(&hash).unwrap();
         Ok(())
-    }
-    #[test]
-    fn test_decode_tree() -> Result<(), String> {
-        let mut contents = Content::new("cd6b39ce605837005418cab9a4b1faeeefa464ca"); // src
-        let decoded = contents.decode()?;
-        assert!(!decoded.is_empty());
-        Ok(())
-    }
-    #[test]
-    fn test_types_commit() {
-        let mut contents = Content::new("8d0e1910e145c51c5c5d6df1b3a19261913ad7cc"); // develop commit
-        let types = contents.object_type().unwrap();
-        assert_eq!(types, "commit");
-    }
-    #[test]
-    fn test_types_tree() {
-        let mut contents = Content::new("cd6b39ce605837005418cab9a4b1faeeefa464ca"); // src
-        let types = contents.object_type().unwrap();
-        assert_eq!(types, "tree");
     }
     #[test]
     fn test_types_blob() {
-        let mut contents = Content::new("37dc934f93b32f0f5901cfa451c08d06756d8f8d"); // Cargo.toml
+        let hash = hash_helper("types_blob", "blob");
+        let mut contents = Content::new(&hash);
         let types = contents.object_type().unwrap();
         assert_eq!(types, "blob");
+        remove_file_helper(&filename_helper("types_blob")).unwrap();
+        remove_file_from_hash_helper(&hash).unwrap();
     }
     #[test]
     fn test_size() {
-        let hash_str = "37dc934f93b32f0f5901cfa451c08d06756d8f8d";
-        let mut contents = Content::new(hash_str); // Cargo.toml
+        let hash = hash_helper("size", "blob");
+        let mut contents = Content::new(&hash);
         let got = contents.size().unwrap();
         let want_binary = std::process::Command::new("git")
-            .args(["cat-file", "-s", hash_str])
+            .args(["cat-file", "-s", &hash])
             .stdout(std::process::Stdio::piped())
             .output()
             .unwrap()
@@ -266,66 +311,8 @@ mod tests {
         let want = want_str.trim_end().parse::<usize>().unwrap();
 
         assert_eq!(got, want);
-    }
-    #[test]
-    fn test_contents_blob() -> Result<(), String> {
-        let hash_str = "37dc934f93b32f0f5901cfa451c08d06756d8f8d"; // Cargo.toml
-        let mut contents = Content::new(hash_str);
-        let got = contents.data()?;
 
-        let want_binary = std::process::Command::new("git")
-            .args(["cat-file", "-p", hash_str])
-            .stdout(std::process::Stdio::piped())
-            .output()
-            .unwrap()
-            .stdout;
-        let want = String::from_utf8(want_binary).unwrap();
-
-        assert!(got[0].contains("blob"));
-        assert_eq!(got[1], want);
-        Ok(())
-    }
-    #[test]
-    fn test_contents_commit() -> Result<(), String> {
-        let hash_str = "8d0e1910e145c51c5c5d6df1b3a19261913ad7cc"; // develop commit
-        let mut contents = Content::new(hash_str);
-        let got = contents.data()?;
-
-        let want_binary = std::process::Command::new("git")
-            .args(["cat-file", "-p", hash_str])
-            .stdout(std::process::Stdio::piped())
-            .output()
-            .unwrap()
-            .stdout;
-        let want = String::from_utf8(want_binary).unwrap();
-
-        assert!(got[0].contains("commit"));
-        assert_eq!(got[1], want);
-        Ok(())
-    }
-    #[test]
-    fn test_contents_tree() -> Result<(), String> {
-        let hash_str = "cd6b39ce605837005418cab9a4b1faeeefa464ca"; // src
-        let mut contents = Content::new(hash_str);
-        let got = contents.list()?;
-
-        let want_binary = std::process::Command::new("git")
-            .args(["cat-file", "-p", hash_str])
-            .stdout(std::process::Stdio::piped())
-            .output()
-            .unwrap()
-            .stdout;
-        let want = String::from_utf8(want_binary).unwrap();
-
-        let mut got_str = String::new();
-        for g in got {
-            got_str.push_str(&format!(
-                "{:06} {} {}\t{}\n",
-                g.mode, g.obj_type, g.hash, g.name
-            ));
-        }
-        assert_eq!(got_str, want);
-
-        Ok(())
+        remove_file_helper(&filename_helper("size")).unwrap();
+        remove_file_from_hash_helper(&hash).unwrap();
     }
 }

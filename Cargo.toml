@@ -10,4 +10,4 @@ description = "A toy project to implement Git"
 [dependencies]
 clap = { version = "4.3.10", features = ["derive"] }
 flate2 = { version = "1.0.17", features = ["zlib-ng"], default-features = false }
-rust-crypto = "0.2.36"
+rand = "0.8.5"
